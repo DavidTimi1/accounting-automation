@@ -1,8 +1,10 @@
+from app.core.utils import log_info
 from app.core.data_extraction import InvoiceDataExtractor
 import os
 import argparse
 import datetime
 import tkinter as tk
+import shutil
 from tkinter import filedialog
 from app.core.ocr_engine import OCREngine
 from app.core.excel_handler import ExcelHandler
@@ -67,13 +69,13 @@ def run_automation(period=None, folder_path=None):
 
 
     def process_result(data, folder_path, period):
-        print(data)
         filename = data['filename']
         file_path = os.path.join(folder_path, filename)
 
         # Update Excel & Verify Discrepancies
         try:
-            status, msg = excel.process_invoice(data, sheet_name=period)
+            status, msg = excel.process_invoice(data, provided_sheet_name=period)
+
         except Exception as e:
             print(f"Error processing {filename}: {e}")
             unresolved.append((filename,msg))
@@ -81,18 +83,15 @@ def run_automation(period=None, folder_path=None):
         
         if status in ["MATCHED", "CREATED"]:
             dest_path = os.path.join(processed_folder, filename)
-            import shutil
             shutil.move(file_path, dest_path)
             
         elif status == "DISCREPANCY":
             dest_path = os.path.join(flagged_folder, filename) # keep original name for review
             discrepancies.append((filename,msg))
-            import shutil
             shutil.move(file_path, dest_path)
 
         else:
-            print(f"status: {status}")
-            print(f"data: {data}")
+            unresolved.append((filename,msg))
 
 
     def callback(data):
@@ -102,16 +101,18 @@ def run_automation(period=None, folder_path=None):
     data_extractor = InvoiceDataExtractor('AI', month, folder_path)
     data_extractor.run(all_extracted_texts, callback)
 
-
     if len(discrepancies) > 0:
         print("\nThe following files had discrepancies:")
-        ( print(filename) for filename in discrepancies )
+        log_json = [{"file": filename, "message": msg} for filename,msg in unresolved]
+        log_info(log_json, "discrepancies")
 
     if len(unresolved) > 0:
         print("\nThe following files could not be processed:")
-        ( print(f"File: {filename}, Reason: {msg}") for filename,msg in unresolved )
-                
-    print("Done processing folder!")
+        log_json = [{"file": filename, "message": msg} for filename,msg in unresolved]
+        log_info(log_json, "unresolved")
+        
+        
+    print("\nDone processing folder!")
     
 
 if __name__ == "__main__":
